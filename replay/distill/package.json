@@ -1,0 +1,22 @@
+{
+  "name": "browser-behavior-distill",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "模块D：技能蒸馏（Browser-BC 思路）——把同一站点多条重复行为轨迹蒸馏成可复用技能 JSON",
+  "main": "index.js",
+  "bin": {
+    "behavior-distill": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "seed-mock": "node seed-mock-db.js",
+    "selfcheck": "node selfcheck.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  }
+}
