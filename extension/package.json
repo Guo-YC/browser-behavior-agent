@@ -1,0 +1,20 @@
+{
+  "name": "browser-behavior-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览器行为采集 Chrome MV3 扩展（模块A）：事件采集、敏感字段硬丢弃、Native Messaging 桥",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip"
+  },
+  "dependencies": {
+    "@medv/finder": "^4",
+    "wxt": "^0.21"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "wxt": "^0.21"
+  }
+}
