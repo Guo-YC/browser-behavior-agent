@@ -1,0 +1,20 @@
+{
+  "name": "browser-behavior-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览器行为采集端 + 本地存储 + MCP 服务 + 技能蒸馏/确定性回放（完整闭环）",
+  "scripts": {
+    "daemon": "node daemon/bin/daemon.js",
+    "daemon:host": "node daemon/bin/host.js",
+    "mcp": "node mcp/index.js",
+    "mcp:http": "node mcp/index.js --http",
+    "distill": "node replay/distill/index.js",
+    "replay": "node replay/runner/index.js",
+    "mock": "node scripts/mock-events.js",
+    "verify": "bash scripts/verify-chain.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
