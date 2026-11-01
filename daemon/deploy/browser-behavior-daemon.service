@@ -1,18 +1,21 @@
 # ============================================================================
 # 浏览器行为采集本地守护进程 · systemd 用户单元（模块B）
 # ----------------------------------------------------------------------------
-# 安装方式（二选一）：
-#   1. 一键脚本：bash scripts/install-native-host.sh --install-systemd
-#   2. 手动安装：
+# 安装方式：
+#   一键部署：bash scripts/setup.sh 或 bash scripts/install-native-host.sh --install-systemd
+#   （安装脚本会自动探测 node 路径与项目根目录，替换下方 <PROJECT_ROOT> / <NODE_BIN> 占位符，
+#     并把单元写入 ~/.config/systemd/user/，随后 daemon-reload + enable --now，无需手动修改本文件）
+# 手动安装（可选）：
 #        mkdir -p ~/.config/systemd/user
 #        cp daemon/deploy/browser-behavior-daemon.service ~/.config/systemd/user/
+#        sed -e "s|<PROJECT_ROOT>|/绝对/项目目录|g" -e "s|<NODE_BIN>|$(command -v node)|g" \
+#            -i ~/.config/systemd/user/browser-behavior-daemon.service
 #        systemctl --user daemon-reload
 #        systemctl --user enable --now browser-behavior-daemon.service
 # 常用命令：
 #   查看状态：systemctl --user status browser-behavior-daemon.service
 #   查看日志：journalctl --user -u browser-behavior-daemon.service -f
-# 注意：本单元 ExecStart 使用本机绝对路径；安装到真实机器时，请将下方
-#       的 <PROJECT_ROOT> 与 <NODE_BIN> 占位符替换为实际的项目目录与 node 可执行文件路径。
+# 注意：本单元 ExecStart 使用占位符 <PROJECT_ROOT> 与 <NODE_BIN>；一键安装时会被脚本自动替换。
 # ============================================================================
 
 [Unit]
