@@ -15,6 +15,7 @@ export function isValidTableToken(token) {
 }
 
 // 计算去重哈希：sha256(selector|type|detail前200字符)，契约 §2.2 behaviors.text_hash
+// 注意：该哈希用于会话内精确去重，不含时间戳，同一会话同一操作重复上报只会入库一条。
 export function dedupHash(selector, type, detail) {
   const detailPrefix = truncateJson(detail, 200);
   const raw = `${selector || ''}|${type}|${detailPrefix}`;
@@ -48,7 +49,7 @@ export function detailToText(detail) {
     return '';
   }
   // 去掉 JSON 引号与括号，保留可检索的关键词文本
-  return json.replace(/[{"",\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+  return json.replace(/[{}",\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 // detail 前 200 字符（用于去重哈希）
