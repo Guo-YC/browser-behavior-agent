@@ -177,8 +177,8 @@ function jsonHasSensitiveKey(text: string, rules: RedactionRules): boolean {
     const obj = JSON.parse(text);
     return walkObject(obj);
   } catch {
-    return /
-"([^"]*(?:passw|pwd|token|secret|api[_-]?key|apikey|credit|card|cvv|cvc|pin|auth|session[_-]?id|ssn)[^"]*)"\s*:/i.test(
+    // 截断导致 JSON 不完整：退化为扫描键名模式
+    return /"([^"]*(?:passw|pwd|token|secret|api[_-]?key|apikey|credit|card|cvv|cvc|pin|auth|session[_-]?id|ssn)[^"]*)"\s*:/i.test(
       text,
     );
   }
