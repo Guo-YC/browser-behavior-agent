@@ -66,13 +66,16 @@ export interface BatchEnvelope {
  * background 负责补全 sessionId / tabId / ts / domain 等公共字段后入队。
  */
 export type InternalMessage =
+  /** content 上报一条已采集事件（公共字段可先由 content 填，background 校验覆盖） */
   | { channel: 'event'; event: Partial<BehaviorEvent> & { type: EventType; detail: Record<string, unknown> } }
+  /** content 首次注入：请求归属本 tab 的 sessionId；background 负责创建会话并补发 session_start */
   | {
       channel: 'get_session';
       startUrl: string;
       userAgent: string;
       screen: string;
     }
+  /** content 导航/加载完成后同步页面标题与 URL（更新 background 会话缓存） */
   | { channel: 'page_meta'; url: string; title: string };
 
 /** get_session 的回复 */

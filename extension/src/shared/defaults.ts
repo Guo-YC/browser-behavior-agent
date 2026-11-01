@@ -5,23 +5,40 @@
 
 /** 扩展整体配置 */
 export interface ExtensionConfig {
+  /** 采集总开关：false 时 content 与 background 都不产出事件 */
   enabled: boolean;
   redaction: RedactionConfig;
+  /** 是否采集 mousemove（高噪声事件，options 页可关） */
   sampleMousemove: boolean;
+  /** 是否采集 scroll（高噪声事件，options 页可关） */
   sampleScroll: boolean;
+  /** 心跳间隔（毫秒）：空闲期保持会话不被守护进程按 30min 回收，默认 5 分钟 */
   heartbeatIntervalMs: number;
+  /** 空闲会话超时（毫秒）：超过后发 session_end(reason='idle')，默认 30 分钟（契约 §1.2 / §2.3） */
   idleTimeoutMs: number;
+  /** 批量发送：攒满该条数立即发送（契约 §1.1：50 条） */
   batchSize: number;
+  /** 批量发送：定时刷新间隔（契约 §1.1：500ms） */
   batchIntervalMs: number;
+  /** 单条 Native 消息字节上限（契约 §1.1：≤1MB，留 100KB 余量用于拆包边界） */
   maxBatchBytes: number;
+  /** 断连后 Native 桥队列上限：超出后丢弃最旧事件，避免内存膨胀 */
   maxQueuedEvents: number;
 }
 
 /** 敏感字段规则（可在 options 页增删改） */
 export interface RedactionConfig {
+  /** 脱敏总开关：false 时不执行 §1.4 规则（仅调试用，默认开启） */
   enabled: boolean;
+  /**
+   * 敏感属性正则源文本列表。元素的 type / name / id / autocomplete /
+   * aria-label / placeholder 任一命中即视为敏感元素（契约 §1.4 #1、#2）。
+   * 每条为正则表达式字面量文本（不含首尾斜杠），options 页一行一条。
+   */
   sensitivePatterns: string[];
+  /** 剥离的请求头名（小写匹配，契约 §1.4 #5），命中则整头不放入事件 */
   dropHeaders: string[];
+  /** 剥离的 URL 查询参数名（小写匹配，契约 §1.4 #4），命中后参数值置 **** */
   dropUrlParams: string[];
 }
 

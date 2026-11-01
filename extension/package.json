@@ -1,18 +1,18 @@
 {
-  "name": "browser-behavior-extension",
-  "version": "0.1.0",
+  "name": "browser-behavior-collector",
+  "description": "模块A：Chrome MV3 浏览器行为采集扩展（WXT + TypeScript），按 CONTRACTS.md §1 协议采集行为并上报本地守护进程",
   "private": true,
+  "version": "1.0.0",
   "type": "module",
-  "description": "浏览器行为采集 Chrome MV3 扩展（模块A）：事件采集、敏感字段硬丢弃、Native Messaging 桥",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "build:chrome": "wxt build -b chrome",
     "compile": "tsc --noEmit",
-    "zip": "wxt zip"
+    "postinstall": "wxt prepare"
   },
   "dependencies": {
-    "@medv/finder": "^4.0.2",
-    "wxt": "^0.21.5"
+    "@medv/finder": "^4.0.2"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

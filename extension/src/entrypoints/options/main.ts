@@ -1,5 +1,6 @@
 /**
- * options 页脚本：读取 / 写入 chrome.storage.local 中的采集配置（契约 §1.4 #6）。
+ * options 页脚本：读取 / 写入 chrome.storage.local 中的采集配置（契约 §1.4 #6：规则可配置）。
+ * 文案与状态提示全部为中文。
  */
 
 import { browser } from 'wxt/browser';
@@ -13,17 +14,20 @@ import {
   type ExtensionConfig,
 } from '../../shared/defaults';
 
+/** 按 id 取控件，类型断言辅助函数 */
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
 }
 
 const statusEl = $<HTMLSpanElement>('status');
 
+/** 在状态栏显示中文提示，error=true 时用红色 */
 function showStatus(message: string, isError = false): void {
   statusEl.textContent = message;
   statusEl.classList.toggle('error', isError);
 }
 
+/** 从存储读取配置并回填表单 */
 async function loadConfig(): Promise<void> {
   const stored = await browser.storage.local.get(CONFIG_STORAGE_KEY);
   const cfg = mergeConfig(stored[CONFIG_STORAGE_KEY] as Partial<ExtensionConfig> | undefined);
@@ -36,6 +40,7 @@ async function loadConfig(): Promise<void> {
   $('dropUrlParams').textContent = cfg.redaction.dropUrlParams.join('、');
 }
 
+/** 校验正则文本：逐条编译，返回错误信息列表（空数组表示全部合法） */
 function validatePatterns(lines: string[]): string[] {
   const errors: string[] = [];
   lines.forEach((src, index) => {
@@ -48,6 +53,7 @@ function validatePatterns(lines: string[]): string[] {
   return errors;
 }
 
+/** 保存表单内容到存储 */
 async function saveConfig(): Promise<void> {
   const stored = await browser.storage.local.get(CONFIG_STORAGE_KEY);
   const cfg = mergeConfig(stored[CONFIG_STORAGE_KEY] as Partial<ExtensionConfig> | undefined);
@@ -66,6 +72,7 @@ async function saveConfig(): Promise<void> {
   cfg.enabled = $<HTMLInputElement>('enabled').checked;
   cfg.sampleMousemove = $<HTMLInputElement>('sampleMousemove').checked;
   cfg.sampleScroll = $<HTMLInputElement>('sampleScroll').checked;
+  // 规则为空时回落到默认规则，避免误关导致脱敏失效
   cfg.redaction.sensitivePatterns =
     patternLines.length > 0 ? patternLines : [DEFAULT_SENSITIVE_PATTERN];
 
@@ -73,6 +80,7 @@ async function saveConfig(): Promise<void> {
   showStatus('已保存，配置即时生效。');
 }
 
+/** 表单恢复默认值（仅回填，不立即写入，点“保存设置”后生效） */
 function resetForm(): void {
   $<HTMLInputElement>('enabled').checked = DEFAULT_CONFIG.enabled;
   $<HTMLInputElement>('sampleMousemove').checked = DEFAULT_CONFIG.sampleMousemove;
