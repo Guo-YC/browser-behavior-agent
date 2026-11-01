@@ -1,53 +1,94 @@
-// 模块E：后端抽象基类。各后端实现同一接口，供 executor 无差别调用。
+/**
+ * 后端基类与共享工具。
+ *
+ * 后端需要实现的动作接口（cdp / playwright 各自适配，dry_run 不连浏览器）：
+ * - connect()：建立浏览器连接；如 opts.targetUrl 存在则先导航到目标页
+ * - disconnect()：释放连接
+ * - navigate(url)：页面导航
+ * - click(selector)：单击元素中心
+ * - dblclick(selector)：双击元素中心
+ * - input(selector, value)：聚焦并输入文本
+ * - hover(selector)：悬停到元素中心
+ * - scroll(selector, value)：滚动到元素，或按 value 滚动窗口
+ * - wait(ms)：等待指定毫秒
+ * - 探针：getUrl() / exists(selector) / textOf(selector)
+ */
+
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * 后端基类：定义契约接口与默认能力表。
- * 子类需实现 precheck / run / getUrl / getText / isPresent / close。
+ * 解析 CDP 调试端点（默认 http://127.0.0.1:9222）为 {host, port}。
+ * @param {string} endpoint
+ * @returns {{host: string, port: number}}
  */
-export class Backend {
-  constructor() {
-    this.mode = 'base';
-    // 能力表：标识当前后端支持哪些动作类型（optional 动作在能力缺失时跳过）
-    this.capabilities = {
-      navigate: true,
-      click: true,
-      dblclick: true,
-      input: true,
-      scroll: true,
-      hover: true,
-      wait: true,
-      assert: true,
-    };
+export function parseCdpEndpoint(endpoint) {
+  const u = new URL(endpoint);
+  return { host: u.hostname, port: Number(u.port || 9222) };
+}
+
+/**
+ * 基类：保存选项并提供未实现方法的中文报错，避免静默降级。
+ */
+export class BaseBackend {
+  /**
+   * @param {{mode?: string, headless?: boolean, targetUrl?: string, cdpEndpoint?: string, continueOnFail?: boolean}} opts
+   */
+  constructor(opts = {}) {
+    this.opts = opts;
+    this.baselineUrl = null;
+    this.connected = false;
   }
 
-  /** 连接到浏览器/初始化（可选实现） */
-  async connect() {}
-
-  /** 关闭连接/释放资源（可选实现） */
-  async close() {}
-
-  /** 预检单个动作（dry-run 的核心；真机后端做基础合法性检查） */
-  async precheck(action) {
-    return { pass: true, message: '' };
+  /** 抛“未实现”中文错误 */
+  _unimplemented(method) {
+    throw new Error(`当前后端未实现动作：${method}（请检查模式配置）`);
   }
 
-  /** 执行单个动作（子类实现） */
-  async run(action) {
-    throw new Error(`后端 ${this.mode} 未实现动作执行。`);
+  async connect() {
+    this._unimplemented('connect');
   }
 
-  /** 获取当前页面 URL */
+  async disconnect() {
+    // 默认空实现
+  }
+
+  async navigate() {
+    this._unimplemented('navigate');
+  }
+
+  async click() {
+    this._unimplemented('click');
+  }
+
+  async dblclick() {
+    this._unimplemented('dblclick');
+  }
+
+  async input() {
+    this._unimplemented('input');
+  }
+
+  async hover() {
+    this._unimplemented('hover');
+  }
+
+  async scroll() {
+    this._unimplemented('scroll');
+  }
+
+  async wait(ms) {
+    await sleep(ms);
+  }
+
   async getUrl() {
-    throw new Error(`后端 ${this.mode} 未实现 getUrl。`);
+    this._unimplemented('getUrl');
   }
 
-  /** 获取指定选择器内的文本 */
-  async getText(selector) {
-    throw new Error(`后端 ${this.mode} 未实现 getText。`);
+  async exists() {
+    this._unimplemented('exists');
   }
 
-  /** 判断指定选择器是否命中且可见 */
-  async isPresent(selector) {
-    throw new Error(`后端 ${this.mode} 未实现 isPresent。`);
+  async textOf() {
+    this._unimplemented('textOf');
   }
 }

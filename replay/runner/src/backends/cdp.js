@@ -1,196 +1,202 @@
-// 模块E：CDP 后端（依据 CONTRACTS.md §6；经 chrome-remote-interface 连本机 9222 端口 Chrome）
-// 复用本机已以 --remote-debugging-port=9222 启动的 Chrome，不下载浏览器。
-import CDP from 'chrome-remote-interface';
-import { Backend } from './base.js';
-
-/** 等待指定毫秒 */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** 由选择器生成一段注入页面、返回元素信息的脚本 */
-function elementEvalScript(selector) {
-  return `
-    (() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { found: false };
-      const r = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return {
-        found: true,
-        tag: el.tagName,
-        text: (el.innerText || el.value || el.textContent || '').trim().slice(0, 200),
-        visible: r.width > 0 && r.height > 0 && style.visibility !== 'hidden' && style.display !== 'none',
-        rect: { x: r.x, y: r.y, width: r.width, height: r.height },
-      };
-    })()
-  `;
-}
-
 /**
- * CDP 后端：通过 chrome-remote-interface 与 Chrome 9222 调试端口通信。
+ * cdp 后端：通过 chrome-remote-interface 连接已启动的 Chrome 调试端口（默认 127.0.0.1:9222）。
+ *
+ * 真机准备（详见 replay/README.md）：
+ *   Chrome --remote-debugging-port=9222 --user-data-dir=<独立目录>
+ *
+ * 实现要点：
+ * - Runtime.evaluate 在页面内 querySelector 定位元素，并读取 getBoundingClientRect 中心坐标；
+ * - Input.dispatchMouseEvent 完成真实点击 / 双击 / 悬停；
+ * - 聚焦后 Input.insertText 注入文本（浏览器派发真实 input 事件），并补派 input/change 兼容框架；
+ * - Page.navigate 导航，load 事件 15 秒超时兜底。
  */
-export class CdpBackend extends Backend {
-  constructor({ port = 9222, host = '127.0.0.1' } = {}) {
-    super();
-    this.mode = 'cdp';
-    this.port = port;
-    this.host = host;
+import CDP from 'chrome-remote-interface';
+import { BaseBackend, sleep, parseCdpEndpoint } from './base.js';
+import { DEFAULT_CDP_ENDPOINT } from '../contract.js';
+
+export class CdpBackend extends BaseBackend {
+  constructor(opts) {
+    super(opts);
+    this.endpoint = opts.cdpEndpoint || DEFAULT_CDP_ENDPOINT;
     this.client = null;
+    this.Page = null;
+    this.Runtime = null;
+    this.Input = null;
+    this.DOM = null;
   }
 
+  /** 建立 CDP 连接并启用 Page / Runtime / DOM 域 */
   async connect() {
+    const { host, port } = parseCdpEndpoint(this.endpoint);
     try {
-      this.client = await CDP({ host: this.host, port: this.port });
-      const { Page, Runtime } = this.client;
-      await Promise.all([Page.enable(), Runtime.enable()]);
-      // 优先取第一个可用页面上下文
-      const { result } = await Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
-      this.currentUrl = result?.value || '';
+      this.client = await CDP({ host, port });
     } catch (err) {
       throw new Error(
-        `无法连接 Chrome 调试端口 ${this.host}:${this.port}。请先以 --remote-debugging-port=${this.port} 启动 Chrome。原因：${err.message}`
+        `无法连接 CDP 调试端点 ${this.endpoint}：${err.message}。` +
+          '请先以 --remote-debugging-port=9222 启动 Chrome（准备步骤见 replay/README.md）。',
       );
     }
-  }
-
-  async close() {
-    if (this.client) {
-      try {
-        await this.client.close();
-      } catch {}
-      this.client = null;
+    this.Page = this.client.Page;
+    this.Runtime = this.client.Runtime;
+    this.Input = this.client.Input;
+    this.DOM = this.client.DOM;
+    await this.Page.enable();
+    await this.Runtime.enable();
+    await this.DOM.enable();
+    this.connected = true;
+    this.connectedVia = 'cdp';
+    this.baselineUrl = await this.getUrl();
+    if (this.opts.targetUrl) {
+      await this.navigate(this.opts.targetUrl);
     }
   }
 
-  async precheck(action) {
-    // CDP 后端也做基础合法性预检（复用 dry-run 规则中的关键项）
-    if (action.type === 'navigate' && !/^https?:\/\//.test(action.value || '')) {
-      return { pass: false, message: `步骤 ${action.step} navigate 目标非法：${action.value}` };
-    }
-    if ((action.type === 'click' || action.type === 'dblclick' || action.type === 'hover') && !action.selector) {
-      return { pass: false, message: `步骤 ${action.step} ${action.type} 缺少选择器` };
-    }
-    if (action.type === 'input' && (!action.selector || !action.value)) {
-      return { pass: false, message: `步骤 ${action.step} input 缺少选择器或输入值` };
-    }
-    return { pass: true, message: '' };
-  }
-
-  async run(action) {
-    const { Runtime, Page } = this.client;
-    switch (action.type) {
-      case 'navigate': {
-        await Page.navigate({ url: action.value });
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const { result } = await Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
-        this.currentUrl = result?.value || action.value;
-        return { pass: true, message: `导航到 ${action.value}` };
-      }
-      case 'click':
-      case 'dblclick': {
-        const evalRes = await this.evalElementInfo(action.selector);
-        if (!evalRes.found) return { pass: false, message: `元素 ${action.selector} 未找到` };
-        const clickType = action.type === 'click' ? 'click' : 'dblclick';
-        const expression = `
-          (() => {
-            const el = document.querySelector(${JSON.stringify(action.selector)});
-            if (!el) return false;
-            el.${clickType}();
-            return true;
-          })()
-        `;
-        const { result } = await Runtime.evaluate({ expression, returnByValue: true });
-        return result?.value ? { pass: true, message: `${clickType} ${action.selector}` } : { pass: false, message: `无法触发 ${clickType}` };
-      }
-      case 'input': {
-        const found = await this.evalElementInfo(action.selector);
-        if (!found.found) return { pass: false, message: `输入框 ${action.selector} 未找到` };
-        // 清空并设值，派发 input/change 事件
-        const expression = `
-          (() => {
-            const el = document.querySelector(${JSON.stringify(action.selector)});
-            if (!el) return false;
-            el.focus();
-            el.value = ${JSON.stringify(action.value)};
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          })()
-        `;
-        const { result } = await Runtime.evaluate({ expression, returnByValue: true });
-        return result?.value ? { pass: true, message: `输入 ${action.value}` } : { pass: false, message: '输入失败' };
-      }
-      case 'scroll': {
-        const expression = `
-          (() => {
-            const el = document.querySelector(${JSON.stringify(action.selector || 'body')});
-            const dir = ${JSON.stringify(action.value || 'down')};
-            if (!el) return false;
-            const delta = dir === 'up' ? -400 : 400;
-            el.scrollBy({ top: delta, behavior: 'auto' });
-            return true;
-          })()
-        `;
-        const { result } = await Runtime.evaluate({ expression, returnByValue: true });
-        return result?.value ? { pass: true, message: `滚动（${action.value || 'down'}）` } : { pass: false, message: '滚动失败' };
-      }
-      case 'hover': {
-        const found = await this.evalElementInfo(action.selector);
-        if (!found.found) return { pass: false, message: `元素 ${action.selector} 未找到` };
-        const expression = `
-          (() => {
-            const el = document.querySelector(${JSON.stringify(action.selector)});
-            if (!el) return false;
-            const rect = el.getBoundingClientRect();
-            el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }));
-            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }));
-            return true;
-          })()
-        `;
-        const { result } = await Runtime.evaluate({ expression, returnByValue: true });
-        return result?.value ? { pass: true, message: `悬停 ${action.selector}` } : { pass: false, message: '悬停失败' };
-      }
-      case 'wait': {
-        await sleep(Math.max(0, action.waitMs || 0));
-        return { pass: true, message: `等待 ${action.waitMs || 0}ms` };
-      }
-      case 'assert': {
-        return { pass: true, message: '断言步骤（由断言求值器处理）' };
-      }
-      default:
-        return { pass: false, message: `未知动作类型：${action.type}` };
-    }
-  }
-
-  /** 获取元素信息（是否存在、可见性、文本、位置） */
-  async evalElementInfo(selector) {
-    const { result } = await this.client.Runtime.evaluate({
-      expression: elementEvalScript(selector),
+  /** 在页面内执行表达式并返回 byValue 结果 */
+  async _eval(expression) {
+    const res = await this.Runtime.evaluate({
+      expression,
       returnByValue: true,
+      awaitPromise: true,
     });
-    return result?.value || { found: false };
+    if (res.exceptionDetails) {
+      const desc =
+        res.exceptionDetails.exception?.description || res.exceptionDetails.text || '未知脚本异常';
+      throw new Error(`页面脚本执行异常：${desc}`);
+    }
+    return res.result?.value;
   }
 
   async getUrl() {
-    const { result } = await this.client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
-    this.currentUrl = result?.value || this.currentUrl || '';
-    return this.currentUrl;
+    return await this._eval('location.href');
   }
 
-  async getText(selector) {
-    const expression = `
-      (() => {
+  async navigate(url) {
+    await this.Page.navigate({ url });
+    // 等待 load 事件；15 秒超时兜底，避免页面永不触发 load 导致挂死
+    await Promise.race([this.Page.loadEventFired(), sleep(15000)]);
+    await sleep(500);
+  }
+
+  /** 定位元素并返回中心坐标、文本、可见性 */
+  async _locate(selector) {
+    return await this._eval(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { found: false };
+      const r = el.getBoundingClientRect();
+      return {
+        found: true,
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+        text: (el.innerText || el.textContent || '').trim(),
+        visible: r.width > 0 && r.height > 0
+      };
+    })()`);
+  }
+
+  async exists(selector) {
+    const v = await this._locate(selector);
+    return !!(v && v.found);
+  }
+
+  async textOf(selector) {
+    const v = await this._locate(selector);
+    return v?.text ?? '';
+  }
+
+  /** 派发鼠标事件（press 时 buttons=1，release 时 buttons=0） */
+  async _mouseAt(x, y, type, clickCount = 1, button = 'left') {
+    await this.Input.dispatchMouseEvent({
+      type,
+      x,
+      y,
+      button,
+      clickCount,
+      buttons: type === 'mouseReleased' ? 0 : 1,
+    });
+  }
+
+  async click(selector) {
+    const el = await this._locate(selector);
+    if (!el?.found) throw new Error(`未找到可点击元素：${selector}`);
+    if (!el.visible) throw new Error(`元素当前不可见：${selector}`);
+    await this._mouseAt(el.x, el.y, 'mousePressed', 1);
+    await sleep(30);
+    await this._mouseAt(el.x, el.y, 'mouseReleased', 1);
+    await sleep(120);
+  }
+
+  async dblclick(selector) {
+    const el = await this._locate(selector);
+    if (!el?.found) throw new Error(`未找到可双击元素：${selector}`);
+    if (!el.visible) throw new Error(`元素当前不可见：${selector}`);
+    // 第一次单击 + 第二次单击（clickCount=2）组成双击
+    await this._mouseAt(el.x, el.y, 'mousePressed', 1);
+    await this._mouseAt(el.x, el.y, 'mouseReleased', 1);
+    await sleep(30);
+    await this._mouseAt(el.x, el.y, 'mousePressed', 2);
+    await sleep(30);
+    await this._mouseAt(el.x, el.y, 'mouseReleased', 2);
+    await sleep(120);
+  }
+
+  async hover(selector) {
+    const el = await this._locate(selector);
+    if (!el?.found) throw new Error(`未找到悬停元素：${selector}`);
+    await this.Input.dispatchMouseEvent({
+      type: 'mouseMoved',
+      x: el.x,
+      y: el.y,
+      button: 'none',
+    });
+  }
+
+  async input(selector, value) {
+    const el = await this._locate(selector);
+    if (!el?.found) throw new Error(`未找到输入框：${selector}`);
+    if (!el.visible) throw new Error(`输入框当前不可见：${selector}`);
+    await this._eval(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (el) el.focus();
+    })()`);
+    // insertText 向聚焦元素注入文本，浏览器会派发真实 input 事件
+    await this.Input.insertText({ text: value });
+    // 兼容不监听原生 input 事件的前端框架，补派 input / change
+    await this._eval(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (el) {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    })()`);
+    await sleep(120);
+  }
+
+  async scroll(selector, value) {
+    if (selector) {
+      await this._eval(`(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
-        return el ? (el.innerText || el.textContent || '').trim() : '';
-      })()
-    `;
-    const { result } = await this.client.Runtime.evaluate({ expression, returnByValue: true });
-    return result?.value || '';
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      })()`);
+    } else {
+      // value 为数字时按像素滚动；"up" 向上，其余默认向下
+      let px = 600;
+      if (typeof value === 'number') px = value;
+      else if (typeof value === 'string' && /^\d+$/.test(value.trim())) px = Number(value.trim());
+      else if (typeof value === 'string' && value.trim().toLowerCase() === 'up') px = -600;
+      await this._eval(`(() => { window.scrollBy(0, ${JSON.stringify(px)}); })()`);
+    }
+    await sleep(200);
   }
 
-  async isPresent(selector) {
-    const info = await this.evalElementInfo(selector);
-    return Boolean(info.found && info.visible);
+  async disconnect() {
+    if (this.client) {
+      try {
+        await this.client.close();
+      } catch {
+        // 连接已断开时忽略关闭异常
+      }
+      this.client = null;
+    }
+    this.connected = false;
   }
 }
