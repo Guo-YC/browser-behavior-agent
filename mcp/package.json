@@ -1,0 +1,19 @@
+{
+  "name": "browser-behavior-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览器行为采集系统模块C：MCP Server（stdio + Streamable HTTP 双传输），对接本地 daemon HTTP API 与 replay 蒸馏/回放模块",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "http": "node index.js --http --port 8765",
+    "list": "node index.js --list"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
