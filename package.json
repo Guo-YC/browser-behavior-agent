@@ -5,6 +5,7 @@
   "type": "module",
   "description": "浏览器行为采集端 + 本地存储 + MCP 服务 + 技能蒸馏/确定性回放（完整闭环）",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
     "daemon": "node daemon/bin/daemon.js",
     "daemon:host": "node daemon/bin/host.js",
     "mcp": "node mcp/index.js",

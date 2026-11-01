@@ -33,7 +33,7 @@ browser-behavior-agent/
 │   ├── distill/         # ④ 技能蒸馏：从重复行为轨迹中挖掘可复用动作链（示范学习）
 │   ├── runner/          # ⑤ 确定性回放：dry_run 预检 / CDP / Playwright 三种模式，逐步骤后置断言
 │   └── skills/          # 技能 JSON 产物目录
-├── scripts/             # mock 事件生成器、端到端验证脚本、Native Host 一键注册（.sh=Linux / .ps1=Windows）
+├── scripts/             # mock 事件生成器、端到端验证脚本、一键部署 setup.sh、Native Host 注册（.sh=Linux / .ps1=Windows）
 ├── docs/CONTRACTS.md    # 模块间共享契约（事件协议 / DB Schema / API / 工具清单 / 技能格式）
 └── package.json         # 根便捷命令
 ```
@@ -70,34 +70,44 @@ node replay/runner/index.js --skill skl_xxx --mode dry_run
 
 ## 三、真机部署（真实浏览器采集）
 
-### 3.1 安装扩展
+### 3.1 一键部署（推荐，单条命令）
+
+先装好扩展并取得其 ID，然后**一条命令**完成「注册 Native Host + 安装并启动 systemd 守护进程」：
+
+```bash
+# 一次性取得扩展 ID：chrome://extensions 开启「开发者模式」→ 复制本扩展的 32 位 ID
+bash scripts/setup.sh --extension-id <你的扩展ID>
+```
+
+`setup.sh` 自动完成四件事，无需手动分步：
+
+1. **扩展构建检查**：产物缺失时自动 `pnpm build`；
+2. **注册 Native Messaging Host**：把扩展 ↔ 守护进程的 stdio 桥写入 Chrome/Chromium 配置目录；
+3. **安装并启动 systemd 守护进程**：自动探测 node 路径与项目根，替换单元内 `<PROJECT_ROOT>`/`<NODE_BIN>` 占位符，写入 `~/.config/systemd/user/` 并 `daemon-reload` + `enable --now`，无需手动改单元文件；
+4. **打印 MCP 启动命令与链路验证入口**。
+
+完成后守护进程已由 systemd 托管（`systemctl --user status browser-behavior-daemon`），MCP 按脚本打印的命令启动即可。
+
+### 3.2 安装扩展（首次，一次性）
 
 1. 构建：`cd extension && pnpm build`，产物在 `extension/.output/chrome-mv3/`。
 2. 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择上面的产物目录。
-3. 稳定扩展 ID（两种方案任选，详见 `extension/README.md`）：
-   - **方案一（推荐）**：在 `extension/wxt.config.ts` 配置 `manifest.key`，扩展 ID 永久固定；
-   - **方案二**：不配 key，从 `chrome://extensions` 复制该扩展的 ID。
+3. 从 `chrome://extensions` 复制该扩展的 32 位 ID（`setup.sh --extension-id` 需要用到）。
 
-### 3.2 注册 Native Messaging Host（扩展 ↔ 守护进程桥梁）
+### 3.3 手动方式（可选，替代 3.1 的分步做法）
 
 ```bash
-# 自动模式：从扩展构建产物的 key 计算扩展 ID
-bash scripts/install-native-host.sh --manifest extension/.output/chrome-mv3/manifest.json
-
-# 手动模式：直接指定扩展 ID
+# 1) 注册 Native Messaging Host（自动从 manifest key 计算，或手动指定 ID）
 bash scripts/install-native-host.sh --extension-id <你的扩展ID>
 
-# 可选：一并注册 systemd 用户自启
+# 2) 安装并启动 systemd 守护进程（安装时自动替换占位符，无需手动改单元）
 bash scripts/install-native-host.sh --extension-id <ID> --install-systemd
+
+#    状态：systemctl --user status browser-behavior-daemon
+#    日志：journalctl --user -u browser-behavior-daemon -f
 ```
 
-### 3.3 守护进程开机自启（systemd）
-
-```bash
-systemctl --user enable --now browser-behavior-daemon
-# 日志：journalctl --user -u browser-behavior-daemon -f
-# 说明：unit 内 ExecStart 的 node 路径与项目目录需按本机实际路径修改（daemon/deploy/ 下有中文注释）
-```
+> 说明：`install-native-host.sh --install-systemd` 会自动探测 node 路径并替换单元占位符为实际值，开箱即用。
 
 > 注意：SQLite WAL 模式要求数据库文件位于本地 POSIX 磁盘（如 `~/data/`），**不要放在网络挂载目录**。默认路径为 `daemon/data/behavior.db`，可用环境变量 `DB_PATH` 覆盖。
 
