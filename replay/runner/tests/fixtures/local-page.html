@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>回放自测页面</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    header nav a#brand { display: inline-block; padding: 12px 20px; }
+    main { padding: 16px; }
+    h1#result-title { color: #1a56db; }
+    #search-form input[name="q"] { width: 240px; padding: 6px; }
+    #search-form button#submit { padding: 6px 18px; margin-left: 8px; }
+    .spacer { height: 1200px; background: #f3f4f6; margin: 16px 0; }
+    #footer-note { padding: 16px; background: #eef2ff; }
+  </style>
+</head>
+<body>
+  <header>
+    <nav><a id="brand" href="#">品牌导航</a></nav>
+  </header>
+  <main>
+    <h1 id="result-title" hidden>搜索结果</h1>
+    <form id="search-form">
+      <label for="q">关键词</label>
+      <input name="q" id="q" placeholder="输入关键词">
+      <button type="submit" id="submit">搜索</button>
+    </form>
+    <button id="dbl-btn">双击触发标记</button>
+    <p id="dbl-flag" hidden>双击已触发</p>
+    <div class="spacer">长内容区域，用于滚动动作自测</div>
+    <p id="footer-note">页脚备注：回放自测页面底部标记</p>
+  </main>
+  <script>
+    // 拦截表单提交：写入结果标题、更新地址栏（pushState），供 url_change / url_contains 断言轮询
+    const form = document.getElementById('search-form');
+    const title = document.getElementById('result-title');
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      const q = document.getElementById('q').value;
+      title.hidden = false;
+      document.title = '搜索结果 - 回放自测';
+      history.pushState({}, '', '/search?q=' + encodeURIComponent(q));
+    });
+    // 双击动作自测：双击按钮后展示标记文本，供 text_present 断言校验
+    document.getElementById('dbl-btn').addEventListener('dblclick', function () {
+      document.getElementById('dbl-flag').hidden = false;
+    });
+  </script>
+</body>
+</html>

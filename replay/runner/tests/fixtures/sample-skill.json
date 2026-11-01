@@ -1,0 +1,70 @@
+{
+  "skillId": "skl_a1b2c3d4e5f60718",
+  "name": "示例站点搜索流程",
+  "domain": "example.com",
+  "description": "打开示例站点搜索页，在搜索框输入关键词并提交，校验结果标题出现（模块E 自检样例，不写入生产 replay/skills 目录）",
+  "targetUrlPattern": "^https?://example\\.com/.*",
+  "createdAt": 1761984000000,
+  "version": 1,
+  "sourceSessions": ["s_demo0001", "s_demo0002"],
+  "evidence": { "trajectoryCount": 3, "matchRate": 0.92 },
+  "actions": [
+    {
+      "step": 1,
+      "type": "navigate",
+      "selector": null,
+      "value": "https://example.com/search",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        { "kind": "url_contains", "target": "example.com", "timeoutMs": 5000 }
+      ]
+    },
+    {
+      "step": 2,
+      "type": "input",
+      "selector": "html > body > form#search-form > input[name=\"q\"]",
+      "value": "豆包助手",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        { "kind": "element_present", "target": "", "timeoutMs": 3000 }
+      ]
+    },
+    {
+      "step": 3,
+      "type": "click",
+      "selector": "html > body > form#search-form > button[type=\"submit\"]",
+      "waitMs": 500,
+      "optional": false,
+      "assertions": [
+        { "kind": "url_change", "target": "", "timeoutMs": 5000 },
+        {
+          "kind": "text_present",
+          "target": "搜索结果",
+          "selector": "html > body > main > h1",
+          "timeoutMs": 5000
+        }
+      ]
+    },
+    {
+      "step": 4,
+      "type": "hover",
+      "selector": "html > body > header > nav > a#brand",
+      "waitMs": 200,
+      "optional": true,
+      "assertions": []
+    },
+    {
+      "step": 5,
+      "type": "assert",
+      "selector": null,
+      "value": null,
+      "waitMs": 0,
+      "optional": false,
+      "assertions": [
+        { "kind": "url_contains", "target": "example.com/search?q=", "timeoutMs": 5000 }
+      ]
+    }
+  ]
+}

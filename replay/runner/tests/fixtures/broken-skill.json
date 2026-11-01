@@ -1,0 +1,86 @@
+{
+  "skillId": "skl_bad000000000001",
+  "name": "缺陷样例技能（仅用于自检 FAIL 路径与退出码）",
+  "domain": "bad.example",
+  "description": "故意包含多处预检失败：非法导航地址、缺失选择器、缺失输入值、断言目标为空、非法等待时长、可选动作失败等",
+  "targetUrlPattern": "^https?://bad\\.example/.*",
+  "createdAt": 1761984000000,
+  "version": 1,
+  "sourceSessions": [],
+  "evidence": { "trajectoryCount": 1, "matchRate": 0 },
+  "actions": [
+    {
+      "step": 1,
+      "type": "navigate",
+      "selector": null,
+      "value": "这不是一个合法网址",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": []
+    },
+    {
+      "step": 2,
+      "type": "click",
+      "selector": "",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": []
+    },
+    {
+      "step": 3,
+      "type": "input",
+      "selector": "html > body > form > input[name=\"q\"]",
+      "value": "",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": []
+    },
+    {
+      "step": 4,
+      "type": "input",
+      "selector": "html > body > form > input[name=\"q\"]",
+      "value": "测试内容",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        { "kind": "text_present", "target": "", "timeoutMs": 3000 }
+      ]
+    },
+    {
+      "step": 5,
+      "type": "wait",
+      "selector": null,
+      "value": null,
+      "waitMs": -100,
+      "optional": false,
+      "assertions": []
+    },
+    {
+      "step": 6,
+      "type": "hover",
+      "selector": "",
+      "waitMs": 200,
+      "optional": true,
+      "assertions": []
+    },
+    {
+      "step": 7,
+      "type": "click",
+      "selector": "html > body > button#submit",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        { "kind": "url_contains", "target": "", "timeoutMs": 3000 }
+      ]
+    },
+    {
+      "step": 8,
+      "type": "assert",
+      "selector": null,
+      "value": null,
+      "waitMs": 0,
+      "optional": false,
+      "assertions": []
+    }
+  ]
+}

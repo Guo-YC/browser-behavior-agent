@@ -1,0 +1,109 @@
+{
+  "skillId": "skl_local000000001",
+  "name": "本地静态页搜索流程（真机自测用）",
+  "domain": "127.0.0.1",
+  "description": "在本地 fixtures 静态页上完成导航、输入、提交、双击、悬停、滚动、等待与后置断言，供 cdp / playwright 真机端到端验证",
+  "targetUrlPattern": "^http://127\\.0\\.0\\.1:18923/.*",
+  "createdAt": 1761984000000,
+  "version": 1,
+  "sourceSessions": ["s_local0001"],
+  "evidence": { "trajectoryCount": 1, "matchRate": 1 },
+  "actions": [
+    {
+      "step": 1,
+      "type": "navigate",
+      "selector": null,
+      "value": "http://127.0.0.1:18923/local-page.html",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        { "kind": "url_contains", "target": "127.0.0.1:18923/local-page.html", "timeoutMs": 5000 }
+      ]
+    },
+    {
+      "step": 2,
+      "type": "input",
+      "selector": "html > body > main > form#search-form > input[name=\"q\"]",
+      "value": "豆包助手",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        { "kind": "element_present", "target": "", "timeoutMs": 3000 }
+      ]
+    },
+    {
+      "step": 3,
+      "type": "click",
+      "selector": "html > body > main > form#search-form > button#submit",
+      "waitMs": 500,
+      "optional": false,
+      "assertions": [
+        { "kind": "url_change", "target": "", "timeoutMs": 5000 },
+        {
+          "kind": "text_present",
+          "target": "搜索结果",
+          "selector": "html > body > main > h1#result-title",
+          "timeoutMs": 5000
+        },
+        { "kind": "url_contains", "target": "search?q=", "timeoutMs": 5000 }
+      ]
+    },
+    {
+      "step": 4,
+      "type": "dblclick",
+      "selector": "html > body > main > button#dbl-btn",
+      "waitMs": 300,
+      "optional": false,
+      "assertions": [
+        {
+          "kind": "text_present",
+          "target": "双击已触发",
+          "selector": "html > body > main > p#dbl-flag",
+          "timeoutMs": 3000
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "type": "hover",
+      "selector": "html > body > header > nav > a#brand",
+      "waitMs": 200,
+      "optional": true,
+      "assertions": []
+    },
+    {
+      "step": 6,
+      "type": "scroll",
+      "selector": "html > body > main > p#footer-note",
+      "value": null,
+      "waitMs": 300,
+      "optional": false,
+      "assertions": []
+    },
+    {
+      "step": 7,
+      "type": "wait",
+      "selector": null,
+      "value": null,
+      "waitMs": 300,
+      "optional": false,
+      "assertions": []
+    },
+    {
+      "step": 8,
+      "type": "assert",
+      "selector": null,
+      "value": null,
+      "waitMs": 0,
+      "optional": false,
+      "assertions": [
+        {
+          "kind": "text_present",
+          "target": "页脚备注",
+          "selector": "html > body > main > p#footer-note",
+          "timeoutMs": 3000
+        }
+      ]
+    }
+  ]
+}
