@@ -1,0 +1,49 @@
+# ============================================================================
+# 浏览器行为采集本地守护进程 · systemd 用户单元（模块B）
+# ----------------------------------------------------------------------------
+# 安装方式（二选一）：
+#   1. 一键脚本：bash scripts/install-native-host.sh --install-systemd
+#   2. 手动安装：
+#        mkdir -p ~/.config/systemd/user
+#        cp daemon/deploy/browser-behavior-daemon.service ~/.config/systemd/user/
+#        systemctl --user daemon-reload
+#        systemctl --user enable --now browser-behavior-daemon.service
+# 常用命令：
+#   查看状态：systemctl --user status browser-behavior-daemon.service
+#   查看日志：journalctl --user -u browser-behavior-daemon.service -f
+# 注意：本单元 ExecStart 使用本机绝对路径；安装到真实机器时，请将下方
+#       的 <PROJECT_ROOT> 与 <NODE_BIN> 占位符替换为实际的项目目录与 node 可执行文件路径。
+# ============================================================================
+
+[Unit]
+Description=浏览器行为采集本地守护进程（模块B：HTTP API + SQLite 本地存储）
+Documentation=file://<PROJECT_ROOT>/daemon/README.md
+After=network.target
+
+[Service]
+Type=simple
+
+# HTTP 监听配置（契约 §3：127.0.0.1:8756，前缀 /api）
+Environment=PORT=8756
+
+# 数据库绝对路径（WAL 模式，契约 §2；请替换为实际项目目录）
+Environment=DB_PATH=<PROJECT_ROOT>/daemon/data/behavior.db
+
+# 会话空闲超时 30 分钟；定期整理间隔 30 分钟（契约 §2.3）
+Environment=IDLE_TIMEOUT_MS=1800000
+Environment=MAINTENANCE_INTERVAL_MS=1800000
+
+# 绝对路径执行 node 与守护进程入口脚本（请替换为实际 node 路径与项目目录）
+ExecStart=<NODE_BIN> <PROJECT_ROOT>/daemon/bin/daemon.js
+WorkingDirectory=<PROJECT_ROOT>/daemon
+
+# 崩溃后自动重启（契约要求 Restart=on-failure）
+Restart=on-failure
+RestartSec=3
+
+# 日志接入用户级 journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
