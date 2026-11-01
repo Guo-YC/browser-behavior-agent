@@ -1,8 +1,60 @@
-# Browser Behavior Agent — 浏览器行为采集端 + 技能蒸馏/回放 + MCP 服务
+# Browser Behavior Agent
 
-> 一个**可直接运行**的完整系统：Chrome 扩展全天候静默采集你的浏览器行为（点击/鼠标/输入/滚动/导航/网络请求，精确到具体按钮和选择器）→ 本地守护进程按域名自动分表入库 → MCP Server 对外提供查询/检索/蒸馏/回放能力，任何 Agent（DSH / OpenCode / Claude / Cursor）都能接入，实现**行为自学习与可复现**。
+### 让你的 Agent 学会你在浏览器里怎么做事
 
-> **运行平台**：Linux（systemd 用户单元自启）与 Windows（任务计划程序 / NSSM）双平台开箱即用。业务代码（扩展/daemon/mcp/replay）完全同一份 Node/TS，不做平台分支；运维层按平台分别提供 `scripts/install-native-host.sh`（Linux）与 `scripts/install-native-host.ps1`（Windows）。
+**采集行为 → 蒸馏技能 → 确定性回放 → 任意 Agent 通过 MCP 复用。全链路本地运行。**
+
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20Streamable%20HTTP-22b8cf)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-495057)
+![Privacy](https://img.shields.io/badge/data-100%25%20local-2f9e44)
+
+> 📄 产品功能介绍页：[`docs/index.html`](docs/index.html)（自包含单文件，可直接用 GitHub Pages 托管 `docs/` 目录）
+
+---
+
+### 它解决什么问题
+
+现有的浏览器自动化只有两条老路：**人写脚本**——选择器一改就全线失效，还不会告诉你哪一步断了；**模型现场操作**——每次路径都不一样，没法回归验证。而这个项目走第三条路：把人的真实操作变成**可执行、可验证、可复用**的结构化资产。
+
+| 你在做的事 | 系统产出什么 |
+|---|---|
+| 正常浏览网页 | 点击 / 输入 / 滚动 / 导航 / 网络请求，精确到 **CSS 选择器 + 元素文本 + URL + 时间戳** |
+| 同一件事重复做几遍 | 从多条轨迹中**蒸馏出动作链**，自动生成前置/后置断言，输出技能 JSON |
+| 让技能跑起来 | **确定性回放**：dry_run 预检 / CDP / Playwright 三种模式，逐步断言，失效点位精确报错 |
+| 让 Agent 自己用 | 10 个中文 **MCP 工具**，stdio 与 Streamable HTTP 双传输，DSH / OpenCode / Claude / Cursor 通用 |
+
+### 核心能力
+
+| 能力 | 说明 | 模块 |
+|---|---|---|
+| 全天候静默采集 | 11 类事件，点击精确到元素文本与选择器路径，输入记录值而非"输入了" | `extension/` |
+| 按域名自动分表 | 新域名首次出现即建表，WAL + FTS5 全文索引，精确重复事件自动去重 | `daemon/` |
+| 结构化检索 | 按站点 / 会话 / 类型 / 时间窗 / URL 片段组合查询，全文命中返回高亮片段 | `daemon/` |
+| 技能蒸馏 | 前缀树在多条轨迹中挖重复动作链，生成 `text_present` / `element_present` / `url_contains` 断言 | `replay/distill/` |
+| 确定性回放 | 三步一断言，失败即中止并报出具体步骤，绝不静默乱点 | `replay/runner/` |
+| Agent 一插即用 | 查询 / 统计 / 全文检索 / 轨迹导出 / 蒸馏 / 回放，10 个工具全覆盖 | `mcp/` |
+
+### 和常见方案的区别
+
+|  | 录屏工具 | 手写 RPA 脚本 | 本项目 |
+|---|---|---|---|
+| 记录形式 | 像素视频，机器读不懂 | 写死的选择器 | 选择器 + 文本 + URL 结构化入库 |
+| 页面改版后 | — | 静默失败 | 逐步断言，精确定位失效步骤 |
+| 能否被 Agent 调用 | 不能 | 需二次封装 | 原生 MCP 协议 |
+| 数据存放 | 常在第三方云端 | 本地 | 只落本机 SQLite，无外网端口 |
+
+### 先验证链路是否通畅
+
+```bash
+# 装好各模块依赖后，一条命令验证整条链路（模拟事件→入库→查询→MCP→蒸馏→回放）
+bash scripts/verify-chain.sh
+# 期望输出：PASS=12 FAIL=0
+```
+
+不需要浏览器、不需要扩展，先用模拟事件确认流水线通畅，再去接真机采集（见 §三）。
+
+### 架构一览
 
 ```
 ┌─────────────────────┐   Native Messaging    ┌──────────────────┐
@@ -22,6 +74,9 @@
                           (Browser-BC 思路)             (Paragent 思路: dry_run/cdp/playwright)
 ```
 
+> **运行平台**：Linux（systemd 用户单元自启）与 Windows（任务计划程序 / NSSM）双平台开箱即用。业务代码（扩展/daemon/mcp/replay）完全同一份 Node/TS，不做平台分支；运维层按平台分别提供 `scripts/install-native-host.sh`（Linux）与 `scripts/install-native-host.ps1`（Windows）。
+
+
 ## 一、目录结构
 
 ```
@@ -34,7 +89,9 @@ browser-behavior-agent/
 │   ├── runner/          # ⑤ 确定性回放：dry_run 预检 / CDP / Playwright 三种模式，逐步骤后置断言
 │   └── skills/          # 技能 JSON 产物目录
 ├── scripts/             # mock 事件生成器、端到端验证脚本、一键部署 setup.sh、Native Host 注册（.sh=Linux / .ps1=Windows）
-├── docs/CONTRACTS.md    # 模块间共享契约（事件协议 / DB Schema / API / 工具清单 / 技能格式）
+├── docs/
+│   ├── index.html       # 产品功能介绍页（自包含单文件，可用 GitHub Pages 托管 docs/）
+│   └── CONTRACTS.md     # 模块间共享契约（事件协议 / DB Schema / API / 工具清单 / 技能格式）
 └── package.json         # 根便捷命令
 ```
 
