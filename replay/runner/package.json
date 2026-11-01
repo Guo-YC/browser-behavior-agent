@@ -1,24 +1,24 @@
 {
-  "name": "browser-behavior-replay-runner",
+  "name": "browser-behavior-runner",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "模块E：确定性回放引擎（Paragent 思路）——把蒸馏出的技能 JSON 以 dry_run / CDP / Playwright 三种模式逐动作回放并做后置断言",
+  "description": "模块E：确定性回放/自动操作执行器（dry_run / cdp / playwright 三种模式，Paragent 思路）",
   "main": "index.js",
   "bin": {
-    "behavior-replay": "./index.js"
+    "replay-runner": "./index.js"
   },
   "scripts": {
     "start": "node index.js",
     "test:dry": "node tests/run-dry-test.js",
-    "serve-fixture": "node tests/serve-fixture.js",
-    "test:live": "node tests/run-live-test.js"
+    "test:live": "node tests/run-live-test.js",
+    "test": "node tests/run-dry-test.js && node tests/run-live-test.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "chrome-remote-interface": "^0.33.0",
-    "playwright-core": "^1.49.1"
+    "playwright-core": "^1.49.0"
   }
 }
