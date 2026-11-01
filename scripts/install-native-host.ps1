@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     install-native-host.ps1 —— Windows 版 Native Messaging Host 一键注册脚本（模块B）
 
@@ -197,13 +197,19 @@ $OutDir = Join-Path $LocalAppData 'BrowserBehaviorAgent\native-host'
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $JsonPath = Join-Path $OutDir "$HostName.json"
 
-# Windows 要求 path 为可执行文件，故写 node.exe 绝对路径，host.js 经 args 传入
+# Windows 的 Native Messaging 清单只认 path，args 会被 Chrome 忽略；
+# 且 Chrome 启动 host 时会追加「扩展 origin」和「--parent-window=<hwnd>」两个参数，
+# 直接指向 node.exe 会因 bad option 立即退出（表现为 Native host has exited）。
+# 因此生成一个 .cmd 启动器作为 path，node.exe 与 host.js 的路径写在启动器里。
+$LauncherPath = Join-Path $OutDir 'run-host.cmd'
+$LauncherText = "@echo off`r`n`"$NodePath`" `"$HostJs`" %*`r`n"
+[System.IO.File]::WriteAllText($LauncherPath, $LauncherText, (New-Object System.Text.UTF8Encoding($false)))
+
 $manifestObj = [ordered]@{
     name            = $HostName
     description     = '浏览器行为采集本地守护进程 Native Messaging Host（模块B，Windows 版）'
     type            = 'stdio'
-    path            = $NodePath
-    args            = @($HostJs)
+    path            = $LauncherPath
     allowed_origins = @("chrome-extension://$ExtensionId/")
 }
 # 以无 BOM 的 UTF-8 写入（Chrome 对带 BOM 的 JSON 兼容性差）
@@ -211,9 +217,11 @@ $jsonText = $manifestObj | ConvertTo-Json -Depth 10
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($JsonPath, $jsonText, $utf8NoBom)
 
+Write-Info "Host 启动器已写入：$LauncherPath"
 Write-Info "Host 清单已写入：$JsonPath"
-Write-Info "  path            = $NodePath"
-Write-Info "  args            = $HostJs"
+Write-Info "  path            = $LauncherPath"
+Write-Info "  node            = $NodePath"
+Write-Info "  host.js         = $HostJs"
 Write-Info "  allowed_origins = chrome-extension://$ExtensionId/"
 
 # ---------------------------------------------------------------------------

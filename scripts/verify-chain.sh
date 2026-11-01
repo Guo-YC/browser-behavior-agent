@@ -5,6 +5,8 @@
 # 依赖：node >=20（各模块已 npm install）；幂等可重复执行。
 # ============================================================================
 set -u
+# 本地回环不走系统代理（Windows/内网常设 http_proxy，否则 127.0.0.1 会被转发导致 502）
+export no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DAEMON_URL="http://127.0.0.1:8756"
 DB_PATH="/tmp/browser-behavior-verify/behavior.db"
@@ -15,7 +17,15 @@ ok()   { PASS=$((PASS+1)); echo "  PASS: $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 mkdir -p "$ROOT/daemon/data" /tmp/browser-behavior-verify
 step "清理并启动守护进程"
-pkill -f 'daemon/bin/daemon.js' 2>/dev/null && sleep 1
+# 跨平台停止已有 daemon：Linux 用 pkill，Windows(Git Bash) 用 taskkill 按监听端口 PID
+if command -v pkill >/dev/null 2>&1; then
+  pkill -f 'daemon/bin/daemon.js' 2>/dev/null && sleep 1
+elif command -v taskkill >/dev/null 2>&1; then
+  for pid in $(netstat -ano 2>/dev/null | grep LISTENING | grep ':8756' | awk '{print $NF}' | sort -u); do
+    taskkill //F //PID "$pid" >/dev/null 2>&1 && echo "  已停止占用 8756 的进程 pid=$pid"
+  done
+  sleep 1
+fi
 rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
 nohup env DB_PATH="$DB_PATH" node "$ROOT/daemon/bin/daemon.js" > "$LOG_FILE" 2>&1 &
 DAEMON_PID=$!
@@ -44,7 +54,7 @@ else bad "mcp/test-client.js 不存在"; fi
 step "技能蒸馏（example.com，min-occurrences=2）"
 DISTILL_OUT=$(DB_PATH="$DB_PATH" node "$ROOT/replay/distill/index.js" --domain example.com --name "下单流程" --min-occurrences 2 2>&1); DISTILL_CODE=$?
 echo "$DISTILL_OUT" | tail -25 | sed 's/^/    /'
-SKILL_FILE=$(echo "$DISTILL_OUT" | grep -oE 'replay/skills/[^ ]+\.json' | head -1)
+SKILL_FILE=$(echo "$DISTILL_OUT" | grep -oE 'replay[\\/]skills[\\/][^ "]+\.json' | head -1 | tr '\\' '/')
 if [ $DISTILL_CODE -eq 0 ] && [ -n "$SKILL_FILE" ] && [ -f "$ROOT/$SKILL_FILE" ]; then ok "蒸馏产出技能: $SKILL_FILE"; SKILL_ID=$(node -e "const s=require('$ROOT/$SKILL_FILE');process.stdout.write(s.skillId||'')" 2>/dev/null || echo ""); else bad "蒸馏未产出技能（输出见上）"; SKILL_FILE=""; fi
 step "确定性回放 dry-run（对蒸馏出的技能）"
 if [ -n "$SKILL_FILE" ]; then

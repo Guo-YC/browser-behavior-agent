@@ -182,10 +182,27 @@ node mcp\index.js --http --port 8765
 
 各 Agent 的 MCP 配置中 `command` 写 `node`，参数为绝对路径（JSON 内反斜杠需转义 `\\`）：`"C:\\path\\to\\browser-behavior-agent\\mcp\\index.js"`。
 
-**Windows 待真机验证**（本沙箱为 Linux，无法实机执行）：
-- `reg query HKCU\Software\Google\Chrome\NativeMessagingHosts\com.browser.behavior.collector` 显示默认值指向清单 JSON；
+**Windows Native Host 注册要点（真机验证结论）**
+
+- Chrome 的 Native Messaging 清单**只认 `path` 一个字段，`args` 会被静默忽略**——因此不能把 `node.exe` 写进 `path`、把 `host.js` 写进 `args`。
+- Chrome 拉起 host 时还会在命令行追加扩展 origin（`chrome-extension://<扩展ID>/`）和 `--parent-window=<hwnd>`。若 `path` 直接指向 `node.exe`，node 会因 `bad option: --parent-window=…` 立即退出，扩展侧只看到 `Native host has exited`。
+- 正确做法：由安装脚本生成启动器 `%LOCALAPPDATA%\BrowserBehaviorAgent\native-host\run-host.cmd`（内容为 `"<node.exe 绝对路径>" "<host.js 绝对路径>" %*`），并把清单的 `path` 指向该启动器。
+- 校验：`reg query HKCU\Software\Google\Chrome\NativeMessagingHosts\com.browser.behavior.collector` 的默认值应指向清单 JSON；清单内 `path` 应指向 `run-host.cmd`，`allowed_origins` 与实际扩展 ID 一致。
+- 注意：`install-native-host.ps1` 必须保存为 **UTF-8 带 BOM**，否则 Windows PowerShell 5.1 会按 ANSI 解码，中文注释变乱码并直接报语法错误。
+- 未打包加载的扩展 ID 由产物目录绝对路径派生（`extension\.output\chrome-mv3`），跨配置目录稳定；可用 `node scripts/load-extension-cdp.mjs 9222` 直接读出，或在 `chrome://extensions` 复制。
+
+**Windows 辅助脚本**
+
+| 脚本 | 用途 |
+|---|---|
+| `scripts/load-extension-cdp.mjs` | 向已开调试端口的 Chrome 装载未打包扩展，打印真实扩展 ID（Chrome 137+ 命令行 `--load-extension` 已失效） |
+| `scripts/verify-live-collect.mjs` | 真机采集链路验证：扩展 → Native Host → daemon 入库 → API 可查 |
+| `scripts/click-report.mjs` | 跨全库聚合点击行为，输出按域名分布 + 时间线 |
+| `scripts/toggle-mousemove.mjs` | 热开关 mousemove 采样（默认开启，噪声大时可关闭，点击/输入/滚动不受影响） |
+
+**Windows 其它待真机验证**（本沙箱为 Linux，无法实机执行）：
+
 - Edge 变体 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\…` 同样注册；
-- 清单 `path` 为 node.exe 绝对路径、`args` 为 host.js 绝对路径、`allowed_origins` 与实际扩展 ID 一致；
 - 任务计划程序登录后自动拉起 daemon（`/health` 可访问）；NSSM 安装/启停正常。
 
 ## 四、接入任意 Agent（MCP）
