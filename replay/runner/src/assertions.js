@@ -1,85 +1,102 @@
-// 模块E：断言求值器（依据 CONTRACTS.md §6 断言类型）
-// 由各后端把当前浏览器状态抽象成 query 对象（url / text / present），本模块做纯逻辑判定，便于复用与单测。
+/**
+ * 后置断言评估器（Paragent 思路：动作执行后轮询断言，超时未满足即 FAIL）。
+ * 与后端解耦：只依赖探针接口 getUrl / exists / textOf，cdp、playwright、dry_run 各自实现探针。
+ */
+import {
+  ASSERTION_LABELS,
+  DEFAULT_ASSERTION_TIMEOUT_MS,
+  ASSERTION_POLL_INTERVAL_MS,
+} from './contract.js';
 
-/** 等待指定毫秒 */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * 单条断言求值
- * @param {{kind:string, target:string, timeoutMs:number}} assertion
- * @param {{ url:()=>Promise<string>, text:(selector)=>Promise<string>, present:(selector)=>Promise<boolean> }} query 浏览器状态查询接口
- * @param {object} [opts]
- * @param {number} [opts.pollMs] 轮询间隔，默认 300
- * @returns {Promise<{pass:boolean, message:string}>}
+ * 评估单条断言，在 timeoutMs 内按固定间隔轮询。
+ * @param {object} assertion 断言对象 {kind, target, timeoutMs}
+ * @param {object} probe 后端探针
+ * @param {string} actionSelector 所属动作的选择器（text_present / element_present 使用）
+ * @param {string|null} baselineUrl 动作执行前记录的网址（url_change 使用）
+ * @returns {Promise<{status: 'PASS'|'FAIL', detail: string}>}
  */
-export async function evaluateAssertion(assertion, query, opts = {}) {
-  const { pollMs = 300 } = opts;
-  const deadline = Date.now() + assertion.timeoutMs;
-  let lastError = '';
+async function evaluateOne(assertion, probe, actionSelector, baselineUrl) {
+  const timeoutMs = assertion.timeoutMs || DEFAULT_ASSERTION_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
+  const { kind, target } = assertion;
+  // 选择器归属：断言自带 selector 优先，缺省回退动作选择器
+  const selector = assertion.selector || actionSelector;
 
-  while (Date.now() < deadline) {
-    try {
-      const currentUrl = await query.url();
-      let pass = false;
-      let message = '';
-
-      switch (assertion.kind) {
-        case 'url_contains': {
-          pass = currentUrl.includes(assertion.target);
-          message = pass
-            ? `地址栏包含「${assertion.target}」`
-            : `地址栏 ${currentUrl} 不包含「${assertion.target}」`;
-          break;
-        }
-        case 'url_change': {
-          pass = currentUrl !== assertion.target; // 由调用方在断言前置入当前 URL 作为 target
-          message = pass ? '地址栏 URL 已变化' : '地址栏 URL 未变化';
-          break;
-        }
-        case 'element_present': {
-          const selector = assertion.target || '';
-          const found = selector ? await query.present(selector) : false;
-          pass = found;
-          message = found ? `元素 ${selector} 存在` : `元素 ${selector} 未找到`;
-          break;
-        }
-        case 'text_present': {
-          const selector = assertion.selector || 'body';
-          const text = await query.text(selector);
-          pass = typeof assertion.target === 'string' && text.includes(assertion.target);
-          message = pass
-            ? `在 ${selector} 内找到文本「${assertion.target}」`
-            : `在 ${selector} 内未找到文本「${assertion.target}」（实际：${text.slice(0, 50)}）`;
-          break;
-        }
-        default:
-          return { pass: false, message: `未知断言类型：${assertion.kind}` };
+  /** 单次检查，返回 {ok, detail} */
+  const check = async () => {
+    switch (kind) {
+      case 'url_contains': {
+        const url = await probe.getUrl();
+        const ok = typeof url === 'string' && url.includes(target);
+        return {
+          ok,
+          detail: `当前网址「${url}」${ok ? '包含' : '不包含'}「${target}」`,
+        };
       }
-
-      if (pass) return { pass: true, message };
-      lastError = message;
-    } catch (err) {
-      lastError = `断言执行异常：${err.message}`;
+      case 'url_change': {
+        const url = await probe.getUrl();
+        const ok = typeof baselineUrl === 'string' && url !== baselineUrl;
+        return {
+          ok,
+          detail: baselineUrl ? `动作前「${baselineUrl}」→ 当前「${url}」` : `当前网址「${url}」`,
+        };
+      }
+      case 'element_present': {
+        const exists = await probe.exists(selector);
+        return {
+          ok: exists,
+          detail: exists ? '元素已在页面中找到' : `未找到元素：${selector}`,
+        };
+      }
+      case 'text_present': {
+        const text = await probe.textOf(selector);
+        const ok = typeof text === 'string' && text.includes(target);
+        const snippet = (text || '').slice(0, 80);
+        return {
+          ok,
+          detail: ok
+            ? `元素文本包含「${target}」`
+            : `元素文本为「${snippet}」，未包含「${target}」`,
+        };
+      }
+      default:
+        return { ok: false, detail: `不支持的断言类型：${kind}` };
     }
-    await sleep(pollMs);
-  }
+  };
 
-  return { pass: false, message: `超时（${assertion.timeoutMs}ms）未满足：${lastError}` };
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await check();
+    if (last.ok) return { status: 'PASS', detail: last.detail };
+    await sleep(ASSERTION_POLL_INTERVAL_MS);
+  }
+  const reason = last?.detail ?? '断言超时';
+  return { status: 'FAIL', detail: `${reason}（已等待 ${timeoutMs}ms，超时未满足）` };
 }
 
 /**
- * 对一个动作的全部断言求值
- * @param {object} action
- * @param {object} query 浏览器状态查询接口
- * @returns {Promise<{pass:boolean, failures:string[]}>}
+ * 评估一个动作携带的全部断言，逐条返回结果。
+ * @param {object[]} assertions 断言数组
+ * @param {object} probe 后端探针
+ * @param {string} actionSelector 动作选择器
+ * @param {string|null} baselineUrl 动作前网址
+ * @returns {Promise<Array<{kind,target,timeoutMs,status,detail}>>}
  */
-export async function evaluateAssertions(action, query) {
-  const failures = [];
-  for (const assertion of action.assertions || []) {
-    const result = await evaluateAssertion(assertion, query);
-    if (!result.pass) failures.push(result.message);
+export async function evaluateAssertions(assertions, probe, actionSelector, baselineUrl) {
+  const results = [];
+  for (const assertion of assertions || []) {
+    const { status, detail } = await evaluateOne(assertion, probe, actionSelector, baselineUrl);
+    results.push({
+      kind: assertion.kind,
+      kindLabel: ASSERTION_LABELS[assertion.kind] || assertion.kind,
+      target: assertion.target,
+      timeoutMs: assertion.timeoutMs || DEFAULT_ASSERTION_TIMEOUT_MS,
+      status,
+      detail,
+    });
   }
-  return { pass: failures.length === 0, failures };
+  return results;
 }
