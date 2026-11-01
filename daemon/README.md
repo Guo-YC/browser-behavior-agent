@@ -4,7 +4,7 @@
 HTTP 查询 API、Chrome Native Messaging 入口与命令行管理工具。接口、Schema、协议一律以
 项目根目录 `docs/CONTRACTS.md` 为唯一事实源（§1 协议、§2 Schema、§3 API、§8 验收、§9 硬约束）。
 
-- 运行时：Node.js ≥ 20，依赖 `better-sqlite3@^13`（预编译二进制直接可用）
+- 运行时：Node.js ≥ 20（实测 v22.23.2），依赖 `better-sqlite3@^13`（实测安装 13.0.3，预编译二进制直接可用，无需退回 12.x）
 - 模块类型：ESM（`package.json` 中 `"type": "module"`）
 - 监听地址：`127.0.0.1:8756`，HTTP 前缀 `/api`（除 `/health` 外）
 - 日志：全部走 **stderr**；Native Messaging host 的 **stdout 只允许输出协议帧**，不写任何日志文本
@@ -26,7 +26,7 @@ daemon/
 │   ├── httpServer.js            # §3 全部 HTTP 端点路由、1MB 请求体上限、统一中文错误 JSON
 │   └── util.js                  # 域名清洗、去重哈希、JSON 安全解析、FTS 查询词转义
 ├── deploy/
-│   └── browser-behavior-daemon.service   # systemd 用户单元（中文注释，占位符，Restart=on-failure）
+│   └── browser-behavior-daemon.service   # systemd 用户单元（中文注释，绝对路径，Restart=on-failure）
 └── data/
     ├── behavior.db              # 默认数据库（首次启动自动创建；已被 .gitignore 忽略）
     └── selfcheck/               # 模块 B 自检脚本与原始响应存档（详见第 9 节）
@@ -64,6 +64,14 @@ node bin/daemon.js
 PORT=8757 DB_PATH=/tmp/behavior-daemon/behavior.db node bin/daemon.js
 ```
 
+启动后日志（stderr）示例：
+
+```
+[behavior-daemon 2026-10-31T15:00:00.000Z] HTTP API 已启动：http://127.0.0.1:8756/api
+[behavior-daemon 2026-10-31T15:00:00.001Z] 数据库路径：/home/.../daemon/data/behavior.db
+[behavior-daemon 2026-10-31T15:00:00.002Z] 会话空闲超时：1800000ms；定期整理间隔：1800000ms
+```
+
 端口被占用时打印中文原因并退出（`EADDRINUSE`），不会空转。收到 `SIGINT` / `SIGTERM` 时先执行
 `compact()`（checkpoint + FTS optimize）再关闭数据库与 HTTP 服务。
 
@@ -99,7 +107,7 @@ node bin/cli.js help
 | GET | `/api/sessions` | `domain` | 会话列表；可选 `from` `to` `limit` |
 | GET | `/api/behaviors` | `domain` | 行为记录；可选 `sessionId` `type` `from` `to` `urlContains` `limit` `offset` |
 | GET | `/api/requests` | `domain` | 网络请求记录（已脱敏）；可选 `method` `urlContains` `status` `from` `to` `limit` |
-| GET | `/api/stats` | `domain` | 行为统计；`groupBy=type|page|hour`（默认 `type`），可选 `from` `to` |
+| GET | `/api/stats` | `domain` | 行为统计；`groupBy=type\|page\|hour`（默认 `type`），可选 `from` `to` |
 | GET | `/api/search` | `q` | FTS5 全文检索（URL / 选择器 / 元素文本 / 详情）；可选 `domain` `limit` |
 | GET | `/api/trajectory` | `domain` | 会话/时间段轨迹（行为 + 页面 + 请求合并，按时间升序）；可选 `sessionId` `from` `to` |
 | GET | `/api/skills` | — | 技能索引列表；可选 `domain` |
@@ -287,7 +295,8 @@ CLI 缺参数 / 未知命令时向 stderr 输出中文错误并以退出码 1 �
 - `sites`：站点注册表（`domain` 唯一，`first_seen` / `last_seen` / `event_count` / `status`）；
 - `site_tables`：域名 → 四张分表名映射；
 - `skills`：技能索引（`skill_id` 主键，重复注册 `version+1`）；
-- `behaviors_fts`：FTS5 虚拟表（`url` `selector` `element_text` `detail_text` 可检索；`domain` `behavior_id` `session_id` `ts` 为 UNINDEXED 附属列）。
+- `behaviors_fts`：FTS5 虚拟表（`url` `selector` `element_text` `detail_text` 可检索；
+  `domain` `behavior_id` `session_id` `ts` 为 UNINDEXED 附属列）。
 
 ### 6.2 按域名自动分表
 
@@ -313,18 +322,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_bh_<D>
 ```
 
 - `text_hash = sha256(selector | type | detail 前 200 字符)`；
-- 入库使用 `INSERT OR IGNORE`；以 `run().changes === 0` 判断命中去重（并发下比 `RETURNING` 更可靠），被去重的行为计入响应 `ignored`；真实新插入行的 `behavior_id` 取自 `lastInsertRowid`，事务提交后写 FTS。
+- 入库使用 `INSERT OR IGNORE`；以 `run().changes === 0` 判断命中去重（并发下比 `RETURNING` 更可靠），
+  被去重的行为计入响应 `ignored`；真实新插入行的 `behavior_id` 取自 `lastInsertRowid`，事务提交后写 FTS。
 
 ### 6.4 会话生命周期
 
 - 每个批次结束后重算受影响会话的 `event_count`（behaviors 行数）与 `page_count`（pages 去重 URL 数）；
-- 定期维护任务：关闭 `closed=0 AND last_activity < now - IDLE_TIMEOUT_MS` 的会话；删除已关闭且 `page_count=0 AND event_count=0` 的空会话；执行 `wal_checkpoint(TRUNCATE)`；
+- 定期维护任务：关闭 `closed=0 AND last_activity < now - IDLE_TIMEOUT_MS` 的会话；删除已关闭且
+  `page_count=0 AND event_count=0` 的空会话；执行 `wal_checkpoint(TRUNCATE)`；
 - 站点计数：首次记录事件时间，冲突时 `last_seen = MAX(旧值, 新事件时间)`，`event_count` 累加。
 
 ### 6.5 数据库存放位置建议
 
 SQLite WAL 模式依赖本地 POSIX 文件系统的 `-wal` / `-shm` 辅助文件可见性。**请将 `DB_PATH` 指向
-本地磁盘目录**（如 `~/.local/share/browser-behavior/behavior.db` 或 `/var/lib/…`）；在部分网络挂载 / FUSE 文件系统上，重开连接后 WAL 内已提交内容可能不可见。默认 `daemon/data/behavior.db` 仅用于开发与本机自检。
+本地磁盘目录**（如 `~/.local/share/browser-behavior/behavior.db` 或 `/var/lib/…`）；在部分网络挂载 /
+FUSE 文件系统上，重开连接后 WAL 内已提交内容可能不可见。默认 `daemon/data/behavior.db` 仅用于
+开发与本机自检。
 
 ---
 
@@ -358,8 +371,9 @@ bash scripts/install-native-host.sh --help
 
 ### 7.3 写入清单
 
-脚本向四个浏览器变体的 `NativeMessagingHosts` 目录写入 `com.browser.behavior.collector.json`
-（`type=stdio`，`path` 指向 `daemon/bin/host.js` 绝对路径，`allowed_origins` 限定本扩展）：
+脚本向以下四个浏览器变体的 `NativeMessagingHosts` 目录写入
+`com.browser.behavior.collector.json`（`type=stdio`，`path` 指向 `daemon/bin/host.js` 绝对路径，
+`allowed_origins` 限定本扩展）：
 
 - `~/.config/google-chrome/NativeMessagingHosts/`
 - `~/.config/chromium/NativeMessagingHosts/`
@@ -372,7 +386,7 @@ bash scripts/install-native-host.sh --help
 {
   "name": "com.browser.behavior.collector",
   "description": "浏览器行为采集本地守护进程 Native Messaging Host（模块B）",
-  "path": "/path/to/browser-behavior-agent/daemon/bin/host.js",
+  "path": "/home/.../browser-behavior-agent/daemon/bin/host.js",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://<扩展ID>/"
@@ -386,7 +400,8 @@ bash scripts/install-native-host.sh --help
 
 ## 8. systemd 用户单元
 
-单元文件：`daemon/deploy/browser-behavior-daemon.service`（中文注释，`Restart=on-failure`，`RestartSec=3`，日志接入用户级 journald）。
+单元文件：`daemon/deploy/browser-behavior-daemon.service`（中文注释，`Restart=on-failure`，
+`RestartSec=3`，日志接入用户级 journald）。
 
 ### 8.1 安装方式
 
@@ -428,7 +443,9 @@ systemctl --user stop browser-behavior-daemon.service       # 停止
 自检脚本与原始响应存档位于 `daemon/data/selfcheck/`：
 
 - `api-checks.sh`：16 步 HTTP 端点自检脚本（可重复执行，`DAEMON_URL` 可覆盖默认地址）；
-- `health.json` `sites.json` `sessions.json` `behaviors.json` `behaviors-click.json` `requests.json` `stats-type.json` `stats-page.json` `stats-hour.json` `search.json` `trajectory.json` `skills-post.json` `skills.json` `session-close.json`：各端点原始响应；
+- `health.json` `sites.json` `sessions.json` `behaviors.json` `behaviors-click.json` `requests.json`
+  `stats-type.json` `stats-page.json` `stats-hour.json` `search.json` `trajectory.json`
+  `skills-post.json` `skills.json` `session-close.json`：各端点原始响应；
 - `cli-*.json` `cli-*.txt`：CLI 查询 / 导入 / 关闭会话 / 整理 / 帮助存档；
 - `host-test.mjs`：Native Messaging 帧协议自检（ping/pong、batch 入库、EOF 退出码）；
 - `concurrency-test.mjs`：双 host 进程并发写自检（30 事件零丢失、无 BUSY）；
@@ -453,10 +470,11 @@ node daemon/data/selfcheck/host-test.mjs
 node daemon/data/selfcheck/concurrency-test.mjs
 node daemon/data/selfcheck/maintenance-test.mjs
 
-# 5) 停止 daemon 后以同一 DB_PATH 重启，核对 /health、/api/sites、/api/behaviors、/api/search、/api/skills 结果与重启前一致（契约 §8：重启后数据仍在）
+# 5) 停止 daemon 后以同一 DB_PATH 重启，核对 /health、/api/sites、/api/behaviors、
+#    /api/search、/api/skills 结果与重启前一致（契约 §8：重启后数据仍在）
 ```
 
-### 已通过的自检结论
+### 已通过的自检结论（本机 Node v22.23.2 / better-sqlite3 13.0.3）
 
 - `/health` 正常返回站点数与事件总数；`/api/sites` 出现已采集域名并带表名映射；
 - `behaviors_<D>` 有行，`/api/behaviors` 总数与类型过滤正确；`/api/search` FTS 命中且带 `<b>关键词</b>` 高亮；
@@ -464,7 +482,8 @@ node daemon/data/selfcheck/maintenance-test.mjs
 - 双 host 进程并发 30 事件全部落库、零丢失、无 `SQLITE_BUSY`；
 - 空闲超时会话自动关闭、空会话清理、新会话保留；`wal_checkpoint(TRUNCATE)` 正常执行；
 - 重启 daemon 后站点数、事件总数、行为总数、检索命中、技能索引与重启前一致；
-- systemd 单元文件存在且含中文注释；`install-native-host.sh` 支持手动 ID、manifest 自动计算、`--install-systemd` 容错安装。
+- systemd 单元文件存在且含中文注释；`install-native-host.sh` 支持手动 ID、manifest 自动计算、
+  `--install-systemd` 容错安装。
 
 ---
 
