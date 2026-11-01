@@ -7,14 +7,15 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "compile": "tsc --noEmit",
     "zip": "wxt zip"
   },
   "dependencies": {
-    "@medv/finder": "^4",
-    "wxt": "^0.21"
+    "@medv/finder": "^4.0.2",
+    "wxt": "^0.21.5"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "wxt": "^0.21"
+    "typescript": "^5.9.3",
+    "wxt": "^0.21.5"
   }
 }
