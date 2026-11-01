@@ -1,0 +1,25 @@
+# 依赖与构建产物
+node_modules/
+.output/
+.wxt/
+dist/
+*.tsbuildinfo
+
+# 数据与运行状态
+daemon/data/
+*.db
+*.db-wal
+*.db-shm
+replay/skills/*.json
+!replay/skills/.gitkeep
+
+# 环境与系统
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
